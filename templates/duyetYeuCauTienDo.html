@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Duyệt yêu cầu tiến độ{% endblock %}
+
+{% block extra_css %}
+    <style>
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .table-container {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: #fafafa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+            color: black;
+            text-transform: uppercase;
+        }
+
+        td {
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+            vertical-align: top;
+        }
+
+        .btn {
+            padding: 9px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-approve {
+            background: #28a745;
+            color: #fff;
+        }
+
+        .btn-reject {
+            background: #dc3545;
+            color: #fff;
+        }
+
+        .action-group {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            background: #f1f1f1;
+            color: #666;
+        }
+
+        .review-pending {
+            background: #fff4d6;
+            color: #8a5a00;
+        }
+
+        .review-approved {
+            background: #e8f7ee;
+            color: #16803c;
+        }
+
+        .review-rejected {
+            background: #fde8e8;
+            color: #b42318;
+        }
+
+        .reason-text {
+            max-width: 360px;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f1fdf0;
+            color: #2d7a33;
+            border: 1px solid #c6eed1;
+        }
+
+        .empty-state {
+            padding: 30px;
+            color: #555;
+            text-align: center;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <h1>Duyệt yêu cầu tiến độ</h1>
+    </header>
+
+    {% if messages %}
+        <div class="message">
+            {% for message in messages %}
+                {{ message }}<br>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="table-container">
+        <table>
+            <thead>
+            <tr>
+                <th style="width: 50px; text-align: center;">STT</th>
+                <th>Tên sự kiện</th>
+                <th>Ngày bắt đầu</th>
+                <th>Ngày kết thúc</th>
+                <th>Năm</th>
+                <th>Trạng thái</th>
+                <th>Lý do</th>
+                <th style="text-align: center;">Trạng thái duyệt</th>
+                {% if can_approve %}
+                    <th style="text-align: center;">Hành động</th>
+                {% endif %}
+            </tr>
+            </thead>
+            <tbody>
+            {% for event in events %}
+                <tr>
+                    <td style="text-align: center; color: #999;">{{ forloop.counter }}</td>
+                    <td><strong>{{ event.title }}</strong></td>
+                    <td>{{ event.fromDate|date:"d/m/Y" }}</td>
+                    <td>{{ event.toDate|date:"d/m/Y" }}</td>
+                    <td>{{ event.year }}</td>
+                    <td>
+                        <span class="status-badge">
+                            {% if event.progress_status == 'postponed' %}
+                                Hoãn
+                            {% elif event.progress_status == 'over_budget' %}
+                                Vượt ngân sách
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td class="reason-text">{{ event.progress_reason|default:"Chưa nhập lý do" }}</td>
+                    <td style="text-align: center;">
+                        {% if event.progress_review_status == 'approved' %}
+                            <span class="status-badge review-approved">Đã duyệt</span>
+                        {% elif event.progress_review_status == 'rejected' %}
+                            <span class="status-badge review-rejected">Từ chối</span>
+                        {% else %}
+                            <span class="status-badge review-pending">Chờ duyệt</span>
+                        {% endif %}
+                    </td>
+                    {% if can_approve %}
+                    <td style="text-align: center;">
+                        <div class="action-group">
+                            <form action="{% url 'pheDuyetYeuCauTienDo' event.id %}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-approve">Duyệt</button>
+                            </form>
+                            <form action="{% url 'khongDuyetYeuCauTienDo' event.id %}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-reject"
+                                        onclick="return confirm('Bạn có chắc muốn không duyệt yêu cầu này?')">
+                                    Không duyệt
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                    {% endif %}
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="{% if can_approve %}9{% else %}8{% endif %}" class="empty-state">Hiện không có yêu cầu tiến độ nào.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

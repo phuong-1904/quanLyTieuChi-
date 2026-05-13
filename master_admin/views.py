@@ -9,7 +9,7 @@ from django.db.models import Q, Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.shortcuts import get_object_or_404
-from master_admin.models import Event, Category, UserRole, User, EventApprovalStatus
+from master_admin.models import Event, Category, UserRole, User, EventApprovalStatus, EventProgressStatus, EventProgressReviewStatus
 
 TOTAL_AMOUNT_ALLOCATED = "Tổng số tiền được cấp trong năm"
 AMOUNT_ALLOCATED_PERSON = "Số tiền được cấp trên người"
@@ -281,6 +281,10 @@ def quan_ly_view(request):
                         is_adhoc=parent_event.is_adhoc,
                         parent_event=parent_event,
                         approval_status=parent_event.approval_status,
+                        progress_status=parent_event.progress_status,
+                        progress_reason=parent_event.progress_reason,
+                        progress_reviewed=parent_event.progress_reviewed,
+                        progress_review_status=parent_event.progress_review_status,
                     )
                     parent_categories = EventCategory.objects.filter(event=parent_event)
                     for parent_category in parent_categories:
@@ -365,10 +369,21 @@ def quan_ly_view(request):
     events_with_children = []
     total_all_parents = 0
     for parent in parent_events:
+        children = list(parent.child_events.all().order_by('fromDate'))
+        child_target_count = parent.so_luong_su_kien_con or 0
+        completed_children_count = sum(
+            1 for child in children
+            if child.progress_status == EventProgressStatus.PERCENT_100
+        )
         events_with_children.append({
             'event': parent,
             'is_parent': True,
-            'children': list(parent.child_events.all().order_by('fromDate'))
+            'children': children,
+            'completed_children_count': completed_children_count,
+            'parent_progress_complete': (
+                child_target_count > 0
+                and completed_children_count >= child_target_count
+            ),
         })
         if parent.num_child_events >= 1:
             parent.totalAmount = parent.totalAmount * parent.num_child_events
@@ -392,17 +407,16 @@ def quan_ly_da_dien_ra_view(request):
     all_categories = Category.objects.all().exclude(
         Q(name=TOTAL_AMOUNT_ALLOCATED) | Q(name=AMOUNT_ALLOCATED_PERSON)
     )
+    completed_filter = Q(toDate__lt=today) | Q(progress_status=EventProgressStatus.PERCENT_100)
 
     available_years = Event.objects.filter(
         approval_status=EventApprovalStatus.APPROVED,
-        toDate__lt=today
-    ).exclude(year__isnull=True).order_by('-year').values_list('year', flat=True).distinct()
+    ).filter(completed_filter).exclude(year__isnull=True).order_by('-year').values_list('year', flat=True).distinct()
 
     # Lấy tất cả sự kiện đã kết thúc (toDate < today) và đã được duyệt
     events = Event.objects.filter(
         approval_status=EventApprovalStatus.APPROVED,
-        toDate__lt=today
-    )
+    ).filter(completed_filter)
 
     if selected_year:
         events = events.filter(year=selected_year)
@@ -412,9 +426,8 @@ def quan_ly_da_dien_ra_view(request):
     parent_events = Event.objects.filter(
         is_adhoc=False,
         approval_status=EventApprovalStatus.APPROVED,
-        toDate__lt=today,
         parent_event__isnull=True,
-    )
+    ).filter(completed_filter)
     if selected_year:
         parent_events = parent_events.filter(year=selected_year)
 
@@ -724,6 +737,65 @@ def khong_duyet_su_kien_view(request, event_id):
     return redirect('duyetSuKien')
 
 
+@login_required(login_url='/login/')
+@admin_required
+def duyet_yeu_cau_tien_do_view(request):
+    events = Event.objects.filter(
+        progress_status__in=[
+            EventProgressStatus.POSTPONED,
+            EventProgressStatus.OVER_BUDGET,
+        ],
+        progress_reviewed=False,
+        progress_review_status=EventProgressReviewStatus.PENDING,
+    ).order_by('-fromDate')
+
+    return render(request, 'duyetYeuCauTienDo.html', {
+        'events': events,
+        'can_approve': True,
+    })
+
+
+@login_required(login_url='/login/')
+@admin_required
+def phe_duyet_yeu_cau_tien_do_view(request, event_id):
+    if request.method == 'POST':
+        event = get_object_or_404(Event, id=event_id)
+        event.progress_reviewed = True
+        event.progress_review_status = EventProgressReviewStatus.APPROVED
+        event.save(update_fields=['progress_reviewed', 'progress_review_status'])
+        messages.success(request, 'Đã duyệt yêu cầu trạng thái sự kiện.')
+
+    return redirect('duyetYeuCauTienDo')
+
+
+@login_required(login_url='/login/')
+@admin_required
+def khong_duyet_yeu_cau_tien_do_view(request, event_id):
+    if request.method == 'POST':
+        event = get_object_or_404(Event, id=event_id)
+        event.progress_reviewed = True
+        event.progress_review_status = EventProgressReviewStatus.REJECTED
+        event.save(update_fields=['progress_reviewed', 'progress_review_status'])
+        messages.warning(request, 'Đã không duyệt yêu cầu trạng thái sự kiện.')
+
+    return redirect('duyetYeuCauTienDo')
+
+
+@login_required(login_url='/login/')
+def user_duyet_yeu_cau_tien_do_view(request):
+    events = Event.objects.filter(
+        progress_status__in=[
+            EventProgressStatus.POSTPONED,
+            EventProgressStatus.OVER_BUDGET,
+        ],
+    ).order_by('-fromDate')
+
+    return render(request, 'duyetYeuCauTienDo.html', {
+        'events': events,
+        'can_approve': False,
+    })
+
+
 def get_categories(request):
     year = request.GET.get('year')
     is_adhoc = request.GET.get('is_adhoc') == 'true'
@@ -766,6 +838,74 @@ def get_categories_new(request):
         'per_user_amount': _get_fixed_category_amount(AMOUNT_ALLOCATED_PERSON, year=year),
         'totalAmountYear': total_year,
     }, safe=False)
+
+
+@login_required(login_url='/login/')
+def cap_nhat_tien_do_su_kien_view(request, event_id):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+
+    if getattr(request.user, 'role', None) == UserRole.ADMIN:
+        return JsonResponse({'success': False, 'message': 'Admin chỉ được xem trạng thái sự kiện.'}, status=403)
+
+    progress_status = request.POST.get('progress_status')
+    valid_statuses = {value for value, label in EventProgressStatus.choices}
+    if progress_status not in valid_statuses:
+        return JsonResponse({'success': False, 'message': 'Tiến độ không hợp lệ'}, status=400)
+
+    event = get_object_or_404(Event, id=event_id)
+    event.progress_status = progress_status
+    needs_review = progress_status in [
+        EventProgressStatus.POSTPONED,
+        EventProgressStatus.OVER_BUDGET,
+    ]
+    event.progress_reviewed = not needs_review
+    event.progress_review_status = (
+        EventProgressReviewStatus.PENDING
+        if needs_review
+        else EventProgressReviewStatus.APPROVED
+    )
+    event.save(update_fields=['progress_status', 'progress_reviewed', 'progress_review_status'])
+
+    if progress_status == EventProgressStatus.NOT_STARTED:
+        status_label = 'Chưa diễn ra'
+        status_class = 'status-upcoming'
+    elif progress_status == EventProgressStatus.POSTPONED:
+        status_label = 'Hoãn'
+        status_class = 'status-ended'
+    elif progress_status == EventProgressStatus.OVER_BUDGET:
+        status_label = 'Vượt ngân sách'
+        status_class = 'status-ended'
+    elif progress_status == EventProgressStatus.PERCENT_100:
+        status_label = 'Đã hoàn thành'
+        status_class = 'status-active'
+    else:
+        status_label = 'Chưa hoàn thành'
+        status_class = 'status-upcoming'
+
+    return JsonResponse({
+        'success': True,
+        'status_label': status_label,
+        'status_class': status_class,
+    })
+
+
+@login_required(login_url='/login/')
+def cap_nhat_ly_do_tien_do_su_kien_view(request, event_id):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+
+    if getattr(request.user, 'role', None) == UserRole.ADMIN:
+        return JsonResponse({'success': False, 'message': 'Admin chỉ được xem lý do trạng thái sự kiện.'}, status=403)
+
+    event = get_object_or_404(Event, id=event_id)
+    event.progress_reason = request.POST.get('progress_reason', '').strip()
+    event.save(update_fields=['progress_reason'])
+
+    return JsonResponse({
+        'success': True,
+        'progress_reason': event.progress_reason,
+    })
 
 
 @login_required(login_url='/login/')
@@ -879,10 +1019,21 @@ def user_quan_ly_view(request):
     events_with_children = []
     total_all_parents = 0
     for parent in parent_events:
+        children = list(parent.child_events.all().order_by('fromDate'))
+        child_target_count = parent.so_luong_su_kien_con or 0
+        completed_children_count = sum(
+            1 for child in children
+            if child.progress_status == EventProgressStatus.PERCENT_100
+        )
         events_with_children.append({
             'event': parent,
             'is_parent': True,
-            'children': list(parent.child_events.all().order_by('fromDate'))
+            'children': children,
+            'completed_children_count': completed_children_count,
+            'parent_progress_complete': (
+                child_target_count > 0
+                and completed_children_count >= child_target_count
+            ),
         })
         total_all_parents += parent.totalAmount
 
@@ -908,17 +1059,16 @@ def user_quan_ly_da_dien_ra_view(request):
         Q(name=TOTAL_AMOUNT_ALLOCATED) |
         Q(name=AMOUNT_ALLOCATED_PERSON)
     )
+    completed_filter = Q(toDate__lt=today) | Q(progress_status=EventProgressStatus.PERCENT_100)
 
     available_years = Event.objects.filter(
-        toDate__lt=today,
         approval_status=EventApprovalStatus.APPROVED
-    ).exclude(year__isnull=True).order_by('-year').values_list('year', flat=True).distinct()
+    ).filter(completed_filter).exclude(year__isnull=True).order_by('-year').values_list('year', flat=True).distinct()
 
     # Lọc các sự kiện đã diễn ra (toDate < hôm nay)
     events = Event.objects.filter(
-        toDate__lt=today,
         approval_status=EventApprovalStatus.APPROVED
-    )
+    ).filter(completed_filter)
 
     if selected_year:
         events = events.filter(year=selected_year)
@@ -927,10 +1077,9 @@ def user_quan_ly_da_dien_ra_view(request):
 
     parent_events = Event.objects.filter(
         is_adhoc=False,
-        toDate__lt=today,
         approval_status=EventApprovalStatus.APPROVED,
         parent_event__isnull=True,
-    )
+    ).filter(completed_filter)
     if selected_year:
         parent_events = parent_events.filter(year=selected_year)
 

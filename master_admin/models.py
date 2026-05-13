@@ -81,6 +81,26 @@ class EventApprovalStatus(models.IntegerChoices):
     APPROVED = 2, 'Đã duyệt'
     REJECTED = 3, 'Không duyệt'
 
+class EventProgressStatus(models.TextChoices):
+    NOT_STARTED = 'not_started', 'Chưa diễn ra'
+    POSTPONED = 'postponed', 'Hoãn'
+    OVER_BUDGET = 'over_budget', 'Vượt ngân sách'
+    PERCENT_100 = '100', '100%'
+    PERCENT_90 = '90', '90%'
+    PERCENT_80 = '80', '80%'
+    PERCENT_70 = '70', '70%'
+    PERCENT_60 = '60', '60%'
+    PERCENT_50 = '50', '50%'
+    PERCENT_40 = '40', '40%'
+    PERCENT_30 = '30', '30%'
+    PERCENT_20 = '20', '20%'
+    PERCENT_10 = '10', '10%'
+
+class EventProgressReviewStatus(models.TextChoices):
+    PENDING = 'pending', 'Chờ duyệt'
+    APPROVED = 'approved', 'Đã duyệt'
+    REJECTED = 'rejected', 'Từ chối'
+
 class Event(models.Model):
     title = models.CharField(max_length=200)
     totalUserAllocated = models.IntegerField(default=0)
@@ -99,6 +119,18 @@ class Event(models.Model):
     is_adhoc = models.BooleanField(default=False)
     approval_status = models.PositiveSmallIntegerField(
         choices=EventApprovalStatus.choices, default=EventApprovalStatus.APPROVED
+    )
+    progress_status = models.CharField(
+        max_length=20,
+        choices=EventProgressStatus.choices,
+        default=EventProgressStatus.PERCENT_10,
+    )
+    progress_reason = models.TextField(blank=True, default='')
+    progress_reviewed = models.BooleanField(default=False)
+    progress_review_status = models.CharField(
+        max_length=20,
+        choices=EventProgressReviewStatus.choices,
+        default=EventProgressReviewStatus.PENDING,
     )
     categories = models.ManyToManyField(
         Category,
