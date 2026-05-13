@@ -114,15 +114,15 @@
         }
 
         .status-ended {
-            background: #f1f1f1;
-            color: #666;
+            background: #ed9f9f;
+            color: #4e0404;
         }
 
         .btn-detail {
             margin-top: 8px;
             padding: 5px 10px;
-            background: #f3f4f6;
-            color: #374151;
+            background: #d4d5d7;
+            color: #020812;
             border: 1px solid #e5e7eb;
             font-size: 12px;
             white-space: nowrap;
@@ -206,34 +206,10 @@
                         <td><strong>{{ item.year }}</strong></td>
                         <td style="text-align: right;">{{ item.totalUserAllocated|default:"0" }}</td>
                         <td style="text-align: center;">{{ item_wrapper.children|length }} / {{ item.so_luong_su_kien_con }}</td>
-                        <td class="progress-cell">
+                        <td class="progress-cell" style="text-align: center;">
                             <span class="parent-progress-text">{{ item_wrapper.completed_children_count }} / {{ item.so_luong_su_kien_con }}</span>
                         </td>
-                        <td style="text-align: center;">
-                            {% if item_wrapper.parent_progress_complete %}
-                                -
-                            {% else %}
-                                <span id="event-status-{{ item.id }}"
-                                      class="status-badge {% if item.progress_status == '100' %}status-active{% elif item.progress_status == 'postponed' or item.progress_status == 'over_budget' %}status-ended{% else %}status-upcoming{% endif %}">
-                                    {% if item.progress_status == 'not_started' %}
-                                        Chưa diễn ra
-                                    {% elif item.progress_status == 'postponed' %}
-                                        Hoãn
-                                    {% elif item.progress_status == 'over_budget' %}
-                                        Vượt ngân sách
-                                    {% elif item.progress_status == '100' %}
-                                        Đã hoàn thành
-                                    {% else %}
-                                        Chưa hoàn thành
-                                    {% endif %}
-                                </span>
-                                <br>
-                                <button type="button" class="btn btn-detail"
-                                        onclick="openReasonModal('{{ item.id }}', '{{ item.title|escapejs }}', '{{ item.progress_reason|default:''|escapejs }}')">
-                                    Chi tiết
-                                </button>
-                            {% endif %}
-                        </td>
+                        <td style="text-align: center;"></td>
                         <td style="text-align: right; font-weight: bold;">
                             <script>document.write(Number('{{ item.totalAmount|default:"0" }}').toLocaleString('vi-VN'));</script>
                             đ
